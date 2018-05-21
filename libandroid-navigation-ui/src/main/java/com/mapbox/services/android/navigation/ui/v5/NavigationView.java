@@ -1,5 +1,6 @@
 package com.mapbox.services.android.navigation.ui.v5;
 
+import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.Fragment;
 import android.arch.lifecycle.LifecycleObserver;
@@ -25,10 +26,12 @@ import com.mapbox.geojson.Point;
 import com.mapbox.mapboxsdk.maps.MapView;
 import com.mapbox.mapboxsdk.maps.MapboxMap;
 import com.mapbox.mapboxsdk.maps.OnMapReadyCallback;
+import com.mapbox.services.android.navigation.ui.v5.camera.NavigationCamera;
 import com.mapbox.services.android.navigation.ui.v5.instruction.ImageCoordinator;
 import com.mapbox.services.android.navigation.ui.v5.instruction.InstructionView;
 import com.mapbox.services.android.navigation.ui.v5.listeners.InstructionListListener;
 import com.mapbox.services.android.navigation.ui.v5.map.NavigationMapboxMap;
+import com.mapbox.services.android.navigation.ui.v5.route.NavigationMapRoute;
 import com.mapbox.services.android.navigation.ui.v5.summary.SummaryBottomSheet;
 import com.mapbox.services.android.navigation.ui.v5.utils.ViewUtils;
 import com.mapbox.services.android.navigation.v5.location.MockLocationEngine;
@@ -59,8 +62,8 @@ import com.mapbox.services.android.navigation.v5.utils.LocaleUtils;
  *
  * @since 0.7.0
  */
-public class NavigationView extends CoordinatorLayout implements LifecycleObserver,
-  OnMapReadyCallback, MapboxMap.OnScrollListener, NavigationContract.View {
+public class NavigationView extends CoordinatorLayout implements LifecycleObserver, OnMapReadyCallback,
+  NavigationContract.View {
 
   private MapView mapView;
   private InstructionView instructionView;
@@ -73,8 +76,10 @@ public class NavigationView extends CoordinatorLayout implements LifecycleObserv
   private NavigationViewEventDispatcher navigationViewEventDispatcher;
   private NavigationViewModel navigationViewModel;
   private MapboxMap map;
+  private NavigationMapRoute mapRoute;
   private NavigationMapboxMap navigationMap;
   private OnNavigationReadyCallback onNavigationReadyCallback;
+  private MapboxMap.OnMoveListener onMoveListener;
   private boolean isInitialized;
 
   public NavigationView(Context context) {
@@ -130,8 +135,9 @@ public class NavigationView extends CoordinatorLayout implements LifecycleObserv
    * @param outState to store state variables
    */
   public void onSaveInstanceState(Bundle outState) {
-    outState.putInt(getContext().getString(R.string.bottom_sheet_state),
-      summaryBehavior.getState());
+    if (summaryBehavior != null) {
+      outState.putInt(getContext().getString(R.string.bottom_sheet_state), summaryBehavior.getState());
+    }
     outState.putBoolean(getContext().getString(R.string.recenter_btn_visible),
       recenterBtn.getVisibility() == View.VISIBLE);
     outState.putBoolean(getContext().getString(R.string.navigation_running), navigationViewModel.isRunning());
@@ -184,6 +190,12 @@ public class NavigationView extends CoordinatorLayout implements LifecycleObserv
     if (navigationMap != null) {
       navigationMap.onStop();
     }
+    if (onMoveListener != null) {
+      map.removeOnMoveListener(onMoveListener);
+    }
+    if (mapRoute != null) {
+      mapRoute.removeProgressChangeListener(navigationViewModel.getNavigation());
+    }
   }
 
   /**
@@ -198,20 +210,8 @@ public class NavigationView extends CoordinatorLayout implements LifecycleObserv
   @Override
   public void onMapReady(MapboxMap mapboxMap) {
     map = mapboxMap;
-    onNavigationReadyCallback.onNavigationReady();
-  }
-
-  /**
-   * Listener this activity sets on the {@link MapboxMap}.
-   * <p>
-   * Used as a cue to hide the {@link SummaryBottomSheet} and stop the
-   * camera from following location updates.
-   *
-   * @since 0.6.0
-   */
-  @Override
-  public void onScroll() {
-    navigationPresenter.onMapScroll();
+    initializeRoute(mapView, map);
+    onNavigationReadyCallback.onNavigationReady(navigationViewModel.isRunning());
   }
 
   @Override
@@ -256,7 +256,14 @@ public class NavigationView extends CoordinatorLayout implements LifecycleObserv
 
   @Override
   public void drawRoute(DirectionsRoute directionsRoute) {
-    navigationMap.drawRoute(directionsRoute);
+    mapRoute.addRoute(directionsRoute);
+  }
+
+  private void initializeRoute(MapView mapView, MapboxMap map) {
+    Context context = mapView.getContext();
+    int routeStyleRes = ThemeSwitcher.retrieveNavigationViewStyle(context, R.attr.navigationViewRouteStyle);
+    mapRoute = new NavigationMapRoute(null, mapView, map, routeStyleRes);
+    navigationMap = new NavigationMapboxMap(mapView, map);
   }
 
   @Override
@@ -335,19 +342,30 @@ public class NavigationView extends CoordinatorLayout implements LifecycleObserv
    *
    * @param options with containing route / coordinate data
    */
+  @SuppressLint("MissingPermission")
   public void startNavigation(NavigationViewOptions options) {
     if (!isInitialized) {
-      establish(options);
-      navigationViewModel.initializeNavigation(options);
-      initializeNavigationListeners(options, navigationViewModel.getNavigation());
       initializeNavigation(options);
-      initializeListeners();
-      subscribeViewModels();
-      isInitialized = true;
     } else {
       navigationMap.clearMarkers();
       navigationViewModel.updateNavigation(options);
+      navigationMap.updateLocationLayerVisibilityTo(true);
+      navigationMap.updateWaynameVisibility(true);
     }
+  }
+
+  /**
+   * Call this when the navigation session needs to end navigation without finishing the whole view
+   *
+   * @since 0.15.0
+   */
+  @SuppressLint("MissingPermission")
+  public void stopNavigation() {
+    navigationViewModel.stopNavigation();
+    navigationMap.updateLocationLayerVisibilityTo(false);
+    navigationMap.updateWaynameVisibility(false);
+    navigationMap.clearMarkers();
+    mapRoute.removeRoute();
   }
 
 
@@ -438,9 +456,11 @@ public class NavigationView extends CoordinatorLayout implements LifecycleObserv
    * @param bottomSheetState retrieved from savedInstanceState
    */
   private void resetBottomSheetState(int bottomSheetState) {
-    boolean isShowing = bottomSheetState == BottomSheetBehavior.STATE_EXPANDED;
-    summaryBehavior.setHideable(!isShowing);
-    summaryBehavior.setState(bottomSheetState);
+    if (bottomSheetState > 0) {
+      boolean isShowing = bottomSheetState == BottomSheetBehavior.STATE_EXPANDED;
+      summaryBehavior.setHideable(!isShowing);
+      summaryBehavior.setState(bottomSheetState);
+    }
   }
 
   @NonNull
@@ -494,8 +514,19 @@ public class NavigationView extends CoordinatorLayout implements LifecycleObserv
     }
   }
 
-  private void initializeListeners() {
-    map.addOnScrollListener(NavigationView.this);
+  private void initializeNavigation(NavigationViewOptions options) {
+    initializeClickListeners();
+    initializeOnMoveListener();
+    establish(options);
+    MapboxNavigation navigation = navigationViewModel.initializeNavigation(options);
+    initializeNavigationListeners(options, navigation);
+    setupNavigationMapboxMap(options, navigation);
+
+    subscribeViewModels();
+    isInitialized = true;
+  }
+
+  private void initializeClickListeners() {
     cancelBtn.setOnClickListener(new View.OnClickListener() {
       @Override
       public void onClick(View view) {
@@ -509,6 +540,11 @@ public class NavigationView extends CoordinatorLayout implements LifecycleObserv
         navigationPresenter.onRecenterClick();
       }
     });
+  }
+
+  private void initializeOnMoveListener() {
+    onMoveListener = new NavigationOnMoveListener(navigationPresenter, summaryBehavior);
+    map.addOnMoveListener(onMoveListener);
   }
 
   private void establish(NavigationViewOptions options) {
@@ -536,18 +572,13 @@ public class NavigationView extends CoordinatorLayout implements LifecycleObserv
     summaryBottomSheet.setTimeFormat(timeFormatType);
   }
 
-  private void initializeNavigation(NavigationViewOptions options) {
-    MapboxNavigation navigation = navigationViewModel.initializeNavigation(options);
-    initializeNavigationListeners(options, navigation);
-    initializeNavigationMapboxMap(options, navigation);
-  }
-
   private void initializeNavigationListeners(NavigationViewOptions options, MapboxNavigation navigation) {
+    mapRoute.addProgressChangeListener(navigation);
     navigationViewEventDispatcher.initializeListeners(options, navigation);
   }
 
-  private void initializeNavigationMapboxMap(NavigationViewOptions options, MapboxNavigation navigation) {
-    navigationMap = new NavigationMapboxMap(mapView, map, navigation);
+  private void setupNavigationMapboxMap(NavigationViewOptions options, MapboxNavigation navigation) {
+    navigationMap.addCamera(new NavigationCamera(map, navigation));
     navigationMap.updateDefaultMapTopPadding(createDefaultMapTopPadding());
     navigationMap.updateWaynameQueryMap(options.waynameChipEnabled());
   }

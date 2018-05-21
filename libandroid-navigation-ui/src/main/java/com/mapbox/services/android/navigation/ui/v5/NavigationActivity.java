@@ -88,7 +88,7 @@ public class NavigationActivity extends AppCompatActivity implements OnNavigatio
   }
 
   @Override
-  public void onNavigationReady() {
+  public void onNavigationReady(boolean isRunning) {
     MapboxNavigationOptions.Builder navigationOptions = MapboxNavigationOptions.builder();
     NavigationViewOptions.Builder options = NavigationViewOptions.builder();
     options.navigationListener(this);

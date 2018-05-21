@@ -85,7 +85,7 @@ import static com.mapbox.mapboxsdk.style.layers.PropertyFactory.visibility;
  *
  * @since 0.4.0
  */
-public class NavigationMapRoute implements ProgressChangeListener, MapView.OnMapChangedListener,
+public class NavigationMapRoute implements MapView.OnMapChangedListener,
   MapboxMap.OnMapClickListener, LifecycleObserver {
 
   private static final String CONGESTION_KEY = "congestion";
@@ -171,6 +171,15 @@ public class NavigationMapRoute implements ProgressChangeListener, MapView.OnMap
   private GeoJsonSource arrowHeadGeoJsonSource;
   private Feature arrowShaftGeoJsonFeature = Feature.fromGeometry(Point.fromLngLat(0, 0));
   private Feature arrowHeadGeoJsonFeature = Feature.fromGeometry(Point.fromLngLat(0, 0));
+  private ProgressChangeListener progressChangeListener = new ProgressChangeListener() {
+    @Override
+    public void onProgressChange(Location location, RouteProgress routeProgress) {
+      if (!routeProgress.directionsRoute().equals(directionsRoutes.get(primaryRouteIndex))) {
+        addRoute(routeProgress.directionsRoute());
+      }
+      addUpcomingManeuverArrow(routeProgress);
+    }
+  };
 
   /**
    * Construct an instance of {@link NavigationMapRoute}.
@@ -325,6 +334,16 @@ public class NavigationMapRoute implements ProgressChangeListener, MapView.OnMap
     toggleAlternativeVisibility(alternativesVisible);
   }
 
+  public void addProgressChangeListener(MapboxNavigation navigation) {
+    navigation.addProgressChangeListener(progressChangeListener);
+  }
+
+  public void removeProgressChangeListener(MapboxNavigation navigation) {
+    if (navigation != null) {
+      navigation.removeProgressChangeListener(progressChangeListener);
+    }
+  }
+
   //
   // Private methods
   //
@@ -472,6 +491,14 @@ public class NavigationMapRoute implements ProgressChangeListener, MapView.OnMap
   }
 
   private void initializeUpcomingManeuverArrow() {
+    arrowShaftGeoJsonSource = (GeoJsonSource) mapboxMap.getSource(ARROW_SHAFT_SOURCE_ID);
+    arrowHeadGeoJsonSource = (GeoJsonSource) mapboxMap.getSource(ARROW_HEAD_SOURCE_ID);
+
+    LineLayer shaftLayer = createArrowShaftLayer();
+    LineLayer shaftCasingLayer = createArrowShaftCasingLayer();
+    SymbolLayer headLayer = createArrowHeadLayer();
+    SymbolLayer headCasingLayer = createArrowHeadCasingLayer();
+
     if (arrowShaftGeoJsonSource == null && arrowHeadGeoJsonSource == null) {
       initializeArrowShaft();
       initializeArrowHead();
@@ -479,19 +506,13 @@ public class NavigationMapRoute implements ProgressChangeListener, MapView.OnMap
       addArrowHeadIcon();
       addArrowHeadIconCasing();
 
-      LineLayer shaftLayer = createArrowShaftLayer();
-      LineLayer shaftCasingLayer = createArrowShaftCasingLayer();
-      SymbolLayer headLayer = createArrowHeadLayer();
-      SymbolLayer headCasingLayer = createArrowHeadCasingLayer();
-
       mapboxMap.addLayer(shaftLayer);
       mapboxMap.addLayer(headLayer);
 
       mapboxMap.addLayerBelow(shaftCasingLayer, shaftLayer.getId());
       mapboxMap.addLayerBelow(headCasingLayer, shaftCasingLayer.getId());
-
-      initializeArrowLayers(shaftLayer, shaftCasingLayer, headLayer, headCasingLayer);
     }
+    initializeArrowLayers(shaftLayer, shaftCasingLayer, headLayer, headCasingLayer);
   }
 
   private void initializeArrowShaft() {
@@ -528,6 +549,10 @@ public class NavigationMapRoute implements ProgressChangeListener, MapView.OnMap
   }
 
   private LineLayer createArrowShaftLayer() {
+    LineLayer shaftLayer = (LineLayer) mapboxMap.getLayer(ARROW_SHAFT_LINE_LAYER_ID);
+    if (shaftLayer != null) {
+      return shaftLayer;
+    }
     return new LineLayer(ARROW_SHAFT_LINE_LAYER_ID, ARROW_SHAFT_SOURCE_ID).withProperties(
       PropertyFactory.lineColor(color(arrowColor)),
       PropertyFactory.lineWidth(
@@ -550,6 +575,10 @@ public class NavigationMapRoute implements ProgressChangeListener, MapView.OnMap
   }
 
   private LineLayer createArrowShaftCasingLayer() {
+    LineLayer shaftCasingLayer = (LineLayer) mapboxMap.getLayer(ARROW_SHAFT_CASING_LINE_LAYER_ID);
+    if (shaftCasingLayer != null) {
+      return shaftCasingLayer;
+    }
     return new LineLayer(ARROW_SHAFT_CASING_LINE_LAYER_ID, ARROW_SHAFT_SOURCE_ID).withProperties(
       PropertyFactory.lineColor(color(arrowBorderColor)),
       PropertyFactory.lineWidth(
@@ -572,6 +601,10 @@ public class NavigationMapRoute implements ProgressChangeListener, MapView.OnMap
   }
 
   private SymbolLayer createArrowHeadLayer() {
+    SymbolLayer headLayer = (SymbolLayer) mapboxMap.getLayer(ARROW_HEAD_LAYER_ID);
+    if (headLayer != null) {
+      return headLayer;
+    }
     return new SymbolLayer(ARROW_HEAD_LAYER_ID, ARROW_HEAD_SOURCE_ID)
       .withProperties(
         PropertyFactory.iconImage(ARROW_HEAD_ICON),
@@ -597,6 +630,10 @@ public class NavigationMapRoute implements ProgressChangeListener, MapView.OnMap
   }
 
   private SymbolLayer createArrowHeadCasingLayer() {
+    SymbolLayer headCasingLayer = (SymbolLayer) mapboxMap.getLayer(ARROW_HEAD_CASING_LAYER_ID);
+    if (headCasingLayer != null) {
+      return headCasingLayer;
+    }
     return new SymbolLayer(ARROW_HEAD_CASING_LAYER_ID, ARROW_HEAD_SOURCE_ID).withProperties(
       PropertyFactory.iconImage(ARROW_HEAD_ICON_CASING),
       iconAllowOverlap(true),
@@ -864,7 +901,7 @@ public class NavigationMapRoute implements ProgressChangeListener, MapView.OnMap
   private void addListeners() {
     mapboxMap.addOnMapClickListener(this);
     if (navigation != null) {
-      navigation.addProgressChangeListener(this);
+      navigation.addProgressChangeListener(progressChangeListener);
     }
     mapView.addOnMapChangedListener(this);
   }
@@ -974,24 +1011,6 @@ public class NavigationMapRoute implements ProgressChangeListener, MapView.OnMap
   }
 
   /**
-   * Called when the user makes new progress during a navigation session. Used to determine whether
-   * or not a re-route has occurred and if so the route is redrawn to reflect the change.
-   *
-   * @param location      the users current location
-   * @param routeProgress a {@link RouteProgress} reflecting the users latest progress along the
-   *                      route
-   * @since 0.4.0
-   */
-  @Override
-  public void onProgressChange(Location location, RouteProgress routeProgress) {
-    // Check if the route's the same as the route currently drawn
-    if (!routeProgress.directionsRoute().equals(directionsRoutes.get(primaryRouteIndex))) {
-      addRoute(routeProgress.directionsRoute());
-    }
-    addUpcomingManeuverArrow(routeProgress);
-  }
-
-  /**
    * This method should be called only if you have passed {@link MapboxNavigation}
    * into the constructor.
    *
@@ -1003,7 +1022,7 @@ public class NavigationMapRoute implements ProgressChangeListener, MapView.OnMap
   @OnLifecycleEvent(Lifecycle.Event.ON_STOP)
   public void onStop() {
     if (navigation != null) {
-      navigation.removeProgressChangeListener(this);
+      navigation.removeProgressChangeListener(progressChangeListener);
     }
   }
 

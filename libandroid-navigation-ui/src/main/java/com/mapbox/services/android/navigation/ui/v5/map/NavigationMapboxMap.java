@@ -23,8 +23,6 @@ import com.mapbox.mapboxsdk.style.sources.VectorSource;
 import com.mapbox.services.android.navigation.ui.v5.R;
 import com.mapbox.services.android.navigation.ui.v5.ThemeSwitcher;
 import com.mapbox.services.android.navigation.ui.v5.camera.NavigationCamera;
-import com.mapbox.services.android.navigation.ui.v5.route.NavigationMapRoute;
-import com.mapbox.services.android.navigation.v5.navigation.MapboxNavigation;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -57,27 +55,20 @@ public class NavigationMapboxMap {
   private static final int LAST_INDEX = 0;
 
   private MapboxMap mapboxMap;
-  private NavigationMapRoute mapRoute;
   private NavigationCamera mapCamera;
   private LocationLayerPlugin locationLayer;
   private MapWayname mapWayname;
   private SymbolLayer waynameLayer;
   private List<Marker> mapMarkers = new ArrayList<>();
 
-  public NavigationMapboxMap(MapView mapView, MapboxMap mapboxMap, MapboxNavigation mapboxNavigation) {
+  public NavigationMapboxMap(MapView mapView, MapboxMap mapboxMap) {
     this.mapboxMap = mapboxMap;
-    initializeRoute(mapView, mapboxMap, mapboxNavigation);
-    initializeCamera(mapboxMap, mapboxNavigation);
     initializeLocationLayer(mapView, mapboxMap);
     initializeWayname(mapView, mapboxMap);
   }
 
   public void updateDefaultMapTopPadding(int topPadding) {
     mapWayname.updateDefaultMapTopPadding(topPadding);
-  }
-
-  public void drawRoute(DirectionsRoute directionsRoute) {
-    mapRoute.addRoute(directionsRoute);
   }
 
   public void addMarker(Context context, Point position) {
@@ -94,20 +85,32 @@ public class NavigationMapboxMap {
     updateMapWaynameWithLocation(location);
   }
 
+  public void addCamera(NavigationCamera camera) {
+    mapCamera = camera;
+  }
+
   public void updateCameraTrackingEnabled(boolean isEnabled) {
-    mapCamera.updateCameraTrackingLocation(isEnabled);
+    if (mapCamera != null) {
+      mapCamera.updateCameraTrackingLocation(isEnabled);
+    }
   }
 
   public void startCamera(DirectionsRoute directionsRoute) {
-    mapCamera.start(directionsRoute);
+    if (mapCamera != null) {
+      mapCamera.start(directionsRoute);
+    }
   }
 
   public void resumeCamera(Location location) {
-    mapCamera.resume(location);
+    if (mapCamera != null) {
+      mapCamera.resume(location);
+    }
   }
 
   public void resetCameraPosition() {
-    mapCamera.resetCameraPosition();
+    if (mapCamera != null) {
+      mapCamera.resetCameraPosition();
+    }
   }
 
   public void updateWaynameView(String wayname) {
@@ -129,14 +132,14 @@ public class NavigationMapboxMap {
 
   public void onStop() {
     locationLayer.onStop();
-    mapCamera.onStop();
-    mapRoute.onStop();
+    if (mapCamera != null) {
+      mapCamera.onStop();
+    }
   }
 
-  private void initializeRoute(MapView mapView, MapboxMap map, MapboxNavigation mapboxNavigation) {
-    Context context = mapView.getContext();
-    int routeStyleRes = ThemeSwitcher.retrieveNavigationViewStyle(context, R.attr.navigationViewRouteStyle);
-    mapRoute = new NavigationMapRoute(mapboxNavigation, mapView, map, routeStyleRes);
+  @SuppressLint("MissingPermission")
+  public void updateLocationLayerVisibilityTo(boolean isVisible) {
+    locationLayer.setLocationLayerEnabled(isVisible);
   }
 
   private void initializeLocationLayer(MapView mapView, MapboxMap map) {
@@ -145,10 +148,6 @@ public class NavigationMapboxMap {
       R.attr.navigationViewLocationLayerStyle);
     locationLayer = new LocationLayerPlugin(mapView, map, null, locationLayerStyleRes);
     locationLayer.setRenderMode(RenderMode.GPS);
-  }
-
-  private void initializeCamera(MapboxMap map, MapboxNavigation mapboxNavigation) {
-    mapCamera = new NavigationCamera(map, mapboxNavigation);
   }
 
   private void initializeWayname(MapView mapView, MapboxMap mapboxMap) {
