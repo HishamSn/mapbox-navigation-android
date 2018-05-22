@@ -6,8 +6,9 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.support.design.widget.CoordinatorLayout;
 import android.util.Base64;
-import android.util.TypedValue;
 import android.view.View;
+
+import com.mapbox.services.android.navigation.ui.v5.R;
 
 import java.io.ByteArrayOutputStream;
 
@@ -48,8 +49,12 @@ public class ViewUtils {
     return null;
   }
 
-  public static float dpToPx(Context context, int dp) {
+  public static int[] buildRouteOverviewPadding(Context context) {
     Resources resources = context.getResources();
-    return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dp, resources.getDisplayMetrics());
+    int leftRightPadding = (int) resources.getDimension(R.dimen.route_overview_left_right_padding);
+    int paddingBuffer = (int) resources.getDimension(R.dimen.route_overview_buffer_padding);
+    int instructionHeight = (int) (resources.getDimension(R.dimen.instruction_layout_height) + paddingBuffer);
+    int summaryHeight = (int) resources.getDimension(R.dimen.summary_bottomsheet_height);
+    return new int[] {leftRightPadding, instructionHeight, leftRightPadding, summaryHeight};
   }
 }

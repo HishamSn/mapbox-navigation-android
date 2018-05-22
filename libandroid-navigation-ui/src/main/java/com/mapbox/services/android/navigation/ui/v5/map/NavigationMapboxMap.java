@@ -60,6 +60,7 @@ public class NavigationMapboxMap {
   private NavigationMapRoute mapRoute;
   private NavigationCamera mapCamera;
   private LocationLayerPlugin locationLayer;
+  private MapPaddingAdjustor mapPaddingAdjustor;
   private MapWayname mapWayname;
   private SymbolLayer waynameLayer;
   private List<Marker> mapMarkers = new ArrayList<>();
@@ -69,11 +70,8 @@ public class NavigationMapboxMap {
     initializeRoute(mapView, mapboxMap, mapboxNavigation);
     initializeCamera(mapboxMap, mapboxNavigation);
     initializeLocationLayer(mapView, mapboxMap);
-    initializeWayname(mapView, mapboxMap);
-  }
-
-  public void updateDefaultMapTopPadding(int topPadding) {
-    mapWayname.updateDefaultMapTopPadding(topPadding);
+    initializeMapPaddingAdjustor(mapView, mapboxMap);
+    initializeWayname(mapView, mapboxMap, mapPaddingAdjustor);
   }
 
   public void drawRoute(DirectionsRoute directionsRoute) {
@@ -108,6 +106,12 @@ public class NavigationMapboxMap {
 
   public void resetCameraPosition() {
     mapCamera.resetCameraPosition();
+    resetMapPadding();
+  }
+
+  public void showRouteOverview(int[] padding) {
+    mapPaddingAdjustor.removeAllPadding();
+    mapCamera.showRouteOverview(padding);
   }
 
   public void updateWaynameView(String wayname) {
@@ -147,16 +151,19 @@ public class NavigationMapboxMap {
     locationLayer.setRenderMode(RenderMode.GPS);
   }
 
+  private void initializeMapPaddingAdjustor(MapView mapView, MapboxMap mapboxMap) {
+    mapPaddingAdjustor = new MapPaddingAdjustor(mapView, mapboxMap);
+  }
+
   private void initializeCamera(MapboxMap map, MapboxNavigation mapboxNavigation) {
     mapCamera = new NavigationCamera(map, mapboxNavigation);
   }
 
-  private void initializeWayname(MapView mapView, MapboxMap mapboxMap) {
+  private void initializeWayname(MapView mapView, MapboxMap mapboxMap, MapPaddingAdjustor paddingAdjustor) {
     initializeStreetsSource(mapboxMap);
     WaynameLayoutProvider layoutProvider = new WaynameLayoutProvider(mapView.getContext());
     WaynameLayerInteractor layerInteractor = new WaynameLayerInteractor(mapboxMap);
     WaynameFeatureFinder featureInteractor = new WaynameFeatureFinder(mapboxMap);
-    WaynamePaddingAdjustor paddingAdjustor = new WaynamePaddingAdjustor(mapboxMap);
     initializeWaynameLayer(layerInteractor);
     mapWayname = new MapWayname(layoutProvider, layerInteractor, featureInteractor, paddingAdjustor);
   }
@@ -195,6 +202,14 @@ public class NavigationMapboxMap {
     mapboxMap.addLayerAt(streetsLayer, LAST_INDEX);
   }
 
+  private void resetMapPadding() {
+    if (mapWayname.isVisible()) {
+      mapPaddingAdjustor.updateTopPaddingWithWayname();
+    } else {
+      mapPaddingAdjustor.updateTopPaddingWithDefault();
+    }
+  }
+
   @NonNull
   private Marker createMarkerFromIcon(Context context, Point position) {
     LatLng markerPosition = new LatLng(position.latitude(),
@@ -214,6 +229,9 @@ public class NavigationMapboxMap {
   private void updateMapWaynameWithLocation(Location location) {
     LatLng latLng = new LatLng(location);
     PointF mapPoint = mapboxMap.getProjection().toScreenLocation(latLng);
-    mapWayname.updateWaynameWithPoint(mapPoint, waynameLayer);
+    boolean waynameFound = mapWayname.updateWaynameWithPoint(mapPoint, waynameLayer);
+    if (!waynameFound) {
+      updateWaynameVisibility(false);
+    }
   }
 }

@@ -27,8 +27,6 @@ public interface NavigationContract {
 
     void addMarker(Point point);
 
-    void finishNavigationView();
-
     void takeScreenshot();
 
     void startCamera(DirectionsRoute directionsRoute);
@@ -38,5 +36,9 @@ public interface NavigationContract {
     void updateNavigationMap(Location location);
 
     boolean isRecenterButtonVisible();
+
+    void updateCameraRouteOverview();
+
+    void updateWaynameVisibility(boolean isVisible);
   }
 }

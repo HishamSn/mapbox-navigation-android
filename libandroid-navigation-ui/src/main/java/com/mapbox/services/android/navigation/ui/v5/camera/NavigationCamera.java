@@ -11,14 +11,19 @@ import android.support.v4.app.FragmentActivity;
 import com.mapbox.api.directions.v5.models.DirectionsRoute;
 import com.mapbox.geojson.Point;
 import com.mapbox.mapboxsdk.camera.CameraPosition;
+import com.mapbox.mapboxsdk.camera.CameraUpdate;
 import com.mapbox.mapboxsdk.camera.CameraUpdateFactory;
 import com.mapbox.mapboxsdk.geometry.LatLng;
+import com.mapbox.mapboxsdk.geometry.LatLngBounds;
 import com.mapbox.mapboxsdk.maps.MapboxMap;
 import com.mapbox.services.android.navigation.v5.navigation.MapboxNavigation;
 import com.mapbox.services.android.navigation.v5.navigation.camera.Camera;
 import com.mapbox.services.android.navigation.v5.navigation.camera.RouteInformation;
 import com.mapbox.services.android.navigation.v5.routeprogress.ProgressChangeListener;
 import com.mapbox.services.android.navigation.v5.routeprogress.RouteProgress;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Updates the map camera while navigating.
@@ -35,11 +40,13 @@ public class NavigationCamera implements LifecycleObserver {
   private MapboxMap mapboxMap;
   private MapboxNavigation navigation;
   private RouteInformation currentRouteInformation;
+  private RouteProgress currentRouteProgress;
   private boolean trackingEnabled = true;
   private long locationUpdateTimestamp;
   private ProgressChangeListener progressChangeListener = new ProgressChangeListener() {
     @Override
     public void onProgressChange(Location location, RouteProgress routeProgress) {
+      currentRouteProgress = routeProgress;
       if (trackingEnabled) {
         currentRouteInformation = buildRouteInformationFromLocation(location, routeProgress);
         animateCameraFromLocation(currentRouteInformation);
@@ -134,13 +141,19 @@ public class NavigationCamera implements LifecycleObserver {
    * @since 0.6.0
    */
   public void resetCameraPosition() {
-    this.trackingEnabled = true;
+    trackingEnabled = true;
     if (currentRouteInformation != null) {
       if (navigation.getCameraEngine() instanceof DynamicCamera) {
         ((DynamicCamera) navigation.getCameraEngine()).forceResetZoomLevel();
       }
       animateCameraFromLocation(currentRouteInformation);
     }
+  }
+
+  public void showRouteOverview(int[] padding) {
+    trackingEnabled = false;
+    RouteInformation routeInformation = buildRouteInformationFromRouteProgress(currentRouteProgress);
+    animateCameraForRouteOverview(routeInformation, padding);
   }
 
   /**
@@ -185,6 +198,14 @@ public class NavigationCamera implements LifecycleObserver {
   @NonNull
   private RouteInformation buildRouteInformationFromLocation(Location location, RouteProgress routeProgress) {
     return RouteInformation.create(null, location, routeProgress);
+  }
+
+  @NonNull
+  private RouteInformation buildRouteInformationFromRouteProgress(RouteProgress routeProgress) {
+    if (routeProgress != null) {
+      return RouteInformation.create(routeProgress.directionsRoute(), null, null);
+    }
+    return RouteInformation.create(null, null, null);
   }
 
   /**
@@ -244,6 +265,45 @@ public class NavigationCamera implements LifecycleObserver {
         navigation.addProgressChangeListener(progressChangeListener);
       }
     });
+  }
+
+  private void animateCameraForRouteOverview(RouteInformation routeInformation, int[] padding) {
+    Camera cameraEngine = navigation.getCameraEngine();
+
+    CameraPosition resetPosition = new CameraPosition.Builder().tilt(0).bearing(0).build();
+    CameraUpdate resetUpdate = CameraUpdateFactory.newCameraPosition(resetPosition);
+
+    List<Point> routePoints = cameraEngine.overview(routeInformation);
+    boolean invalidPoints = routePoints.isEmpty();
+    if (invalidPoints) {
+      return;
+    }
+    final LatLngBounds routeBounds = convertRoutePointsToLatLngBounds(routePoints);
+    final CameraUpdate overviewUpdate = CameraUpdateFactory.newLatLngBounds(
+      routeBounds, padding[0], padding[1], padding[2], padding[3]
+    );
+
+    mapboxMap.animateCamera(resetUpdate, 150, new MapboxMap.CancelableCallback() {
+      @Override
+      public void onCancel() {
+        // No-op
+      }
+
+      @Override
+      public void onFinish() {
+        mapboxMap.animateCamera(overviewUpdate, 750);
+      }
+    });
+  }
+
+  private LatLngBounds convertRoutePointsToLatLngBounds(List<Point> routePoints) {
+    List<LatLng> latLngs = new ArrayList<>();
+    for (Point routePoint : routePoints) {
+      latLngs.add(new LatLng(routePoint.latitude(), routePoint.longitude()));
+    }
+    return new LatLngBounds.Builder()
+      .includes(latLngs)
+      .build();
   }
 
   /**

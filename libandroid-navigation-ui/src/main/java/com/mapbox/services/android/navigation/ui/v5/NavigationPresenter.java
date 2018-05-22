@@ -23,11 +23,8 @@ class NavigationPresenter {
     view.setSummaryBehaviorHideable(false);
     view.setSummaryBehaviorState(BottomSheetBehavior.STATE_EXPANDED);
     view.resetCameraPosition();
+    view.updateWaynameVisibility(true);
     view.hideRecenterBtn();
-  }
-
-  void onCancelBtnClick() {
-    view.finishNavigationView();
   }
 
   void onMapScroll() {
@@ -46,6 +43,7 @@ class NavigationPresenter {
 
   void onRouteUpdate(DirectionsRoute directionsRoute) {
     view.drawRoute(directionsRoute);
+    view.updateWaynameVisibility(true);
     if (!resumeState) {
       view.startCamera(directionsRoute);
     }
@@ -67,11 +65,17 @@ class NavigationPresenter {
     view.updateNavigationMap(location);
   }
 
-  public void onInstructionListVisibilityChanged(boolean visible) {
+  void onInstructionListVisibilityChanged(boolean visible) {
     if (visible) {
       view.hideRecenterBtn();
     } else {
       view.showRecenterBtn();
     }
+  }
+
+  void onRouteOverviewClick() {
+    view.updateWaynameVisibility(false);
+    view.updateCameraRouteOverview();
+    view.showRecenterBtn();
   }
 }
