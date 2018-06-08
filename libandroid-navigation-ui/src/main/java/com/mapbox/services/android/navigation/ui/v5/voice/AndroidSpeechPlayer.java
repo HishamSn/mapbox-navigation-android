@@ -8,6 +8,8 @@ import android.text.TextUtils;
 import java.util.HashMap;
 import java.util.Locale;
 
+import timber.log.Timber;
+
 /**
  * Default player used to play voice instructions when a connection to Polly is unable to be established.
  * <p>
@@ -21,6 +23,7 @@ public class AndroidSpeechPlayer implements InstructionPlayer {
 
   private TextToSpeech textToSpeech;
   private boolean isMuted;
+  private boolean languageSupported = false;
 
   /**
    * Creates an instance of {@link AndroidSpeechPlayer}.
@@ -33,8 +36,19 @@ public class AndroidSpeechPlayer implements InstructionPlayer {
     textToSpeech = new TextToSpeech(context, new TextToSpeech.OnInitListener() {
       @Override
       public void onInit(int status) {
-        if (status != TextToSpeech.ERROR) {
-          textToSpeech.setLanguage(new Locale(language));
+        if (status == TextToSpeech.ERROR || language == null) {
+          Timber.w("There was an error initializing native TTS");
+          textToSpeech = null;
+          return;
+        }
+
+        Locale locale = new Locale(language);
+        if (textToSpeech.isLanguageAvailable(locale) == TextToSpeech.LANG_AVAILABLE) {
+          languageSupported = true;
+          textToSpeech.setLanguage(locale);
+        } else {
+          Timber.w("The specified language is not supported by TTS");
+          textToSpeech = null;
         }
       }
     });
@@ -45,7 +59,7 @@ public class AndroidSpeechPlayer implements InstructionPlayer {
    */
   @Override
   public void play(String instruction) {
-    if (!isMuted && !TextUtils.isEmpty(instruction)) {
+    if (canPlay(instruction)) {
       HashMap<String, String> params = new HashMap<>(1);
       params.put(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, DEFAULT_UTTERANCE_ID);
       textToSpeech.speak(instruction, TextToSpeech.QUEUE_ADD, params);
@@ -92,6 +106,10 @@ public class AndroidSpeechPlayer implements InstructionPlayer {
     if (textToSpeech.isSpeaking()) {
       textToSpeech.stop();
     }
+  }
+
+  private boolean canPlay(String instruction) {
+    return languageSupported && !isMuted && !TextUtils.isEmpty(instruction);
   }
 
   void setInstructionListener(final InstructionListener instructionListener) {

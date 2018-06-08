@@ -16,8 +16,11 @@ public class NavigationInstructionPlayer implements InstructionListener {
   private AndroidSpeechPlayer androidSpeechPlayer;
   private VoiceInstructionMilestone voiceInstructionMilestone;
   private boolean isMuted;
+  boolean languageSupportedByMapboxSpeech;
 
-  public NavigationInstructionPlayer(@NonNull Context context, String language, String accessToken) {
+  public NavigationInstructionPlayer(@NonNull Context context, String language,
+                                     boolean languageSupportedByMapboxSpeech, String accessToken) {
+    this.languageSupportedByMapboxSpeech = languageSupportedByMapboxSpeech;
     initAudioManager(context);
     initAudioFocusRequest();
     initInstructionPlayers(context, language, accessToken);
@@ -25,7 +28,11 @@ public class NavigationInstructionPlayer implements InstructionListener {
 
   public void play(VoiceInstructionMilestone voiceInstructionMilestone) {
     this.voiceInstructionMilestone = voiceInstructionMilestone;
-    mapboxSpeechPlayer.play(voiceInstructionMilestone.getSsmlAnnouncement());
+    if (languageSupportedByMapboxSpeech) {
+      mapboxSpeechPlayer.play(voiceInstructionMilestone.getSsmlAnnouncement());
+    } else {
+      androidSpeechPlayer.play(voiceInstructionMilestone.getAnnouncement());
+    }
   }
 
   public boolean isMuted() {
@@ -72,8 +79,11 @@ public class NavigationInstructionPlayer implements InstructionListener {
   }
 
   private void initInstructionPlayers(Context context, String language, String accessToken) {
-    mapboxSpeechPlayer = new MapboxSpeechPlayer(context, language, accessToken);
-    mapboxSpeechPlayer.setInstructionListener(this);
+    if (languageSupportedByMapboxSpeech) {
+      mapboxSpeechPlayer = new MapboxSpeechPlayer(context, language, accessToken);
+      mapboxSpeechPlayer.setInstructionListener(this);
+    }
+
     androidSpeechPlayer = new AndroidSpeechPlayer(context, language);
     androidSpeechPlayer.setInstructionListener(this);
   }
